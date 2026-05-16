@@ -1,0 +1,13 @@
+name: feature-module-reduction-env
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  - pandas
+  - snakemake
+  - pip
+  - pip:
+    - openai==2.30.0
+    - snakemake-executor-plugin-slurm==2.6.0

@@ -1,29 +1,101 @@
-#### Overview
+# Snakemake workflow: `feature-flow`
 
-- This directory contains a Snakemake pipeline for reducing large feature tables into module-level summaries and testing both modules and original member features.
-- The pipeline supports:
-  - single feature-table runs
-  - batch runs over many feature-table directories
-  - combined runs that merge multiple input tables first
-- Main stages:
-  - validate and optionally combine feature tables
-  - test feature normality for annotation
-  - preprocess, filter, and optionally impute features
-  - reduce features into hierarchical-clustering modules
-  - optionally annotate module meaning by pathway enrichment or LLM naming
-  - run univariate tests on module features
-  - run univariate tests on original/member features
-  - export wide summary tables for downstream biology analyses
+[![Snakemake](https://img.shields.io/badge/snakemake-≥8.0.0-brightgreen.svg)](https://snakemake.github.io)
+[![GitHub actions status](https://github.com/liezeltamon/feature-flow/actions/workflows/main.yaml/badge.svg?branch=main)](https://github.com/liezeltamon/feature-flow/actions/workflows/main.yaml)
+[![run with conda](http://img.shields.io/badge/run%20with-conda-3EB049?labelColor=000000&logo=anaconda)](https://docs.conda.io/en/latest/)
+[![workflow catalog](https://img.shields.io/badge/Snakemake%20workflow%20catalog-darkgreen)](https://snakemake.github.io/snakemake-workflow-catalog/docs/workflows/liezeltamon/feature-flow)
 
-#### Environment
+A Snakemake workflow for reducing high-dimensional feature tables into module-level summaries with statistical testing and optional biological annotation.
 
-- R scripts run through the configured `rscript_bin` in the active config.
-- Snakemake is required to orchestrate the workflow.
-- Cluster execution uses the optional Snakemake SLURM executor plugin.
-- LLM module naming requires OpenAI credentials when `module_meaning_llm.enabled: true`.
-- Gene/pathway module naming uses `gprofiler2`, so compute nodes need network access to g:Profiler for that step.
-- The repo-level `.Rprofile` and `renv::load()` are used by the R scripts; run from the repo root unless a script says otherwise.
-- Minimal Snakemake environment setup:
+- [Snakemake workflow: `feature-flow`](#snakemake-workflow-feature-flow)
+  - [Overview](#overview)
+  - [Input data](#input-data)
+  - [Output](#output)
+  - [Usage](#usage)
+  - [Deployment options](#deployment-options)
+  - [Workflow profiles](#workflow-profiles)
+  - [Authors](#authors)
+  - [References](#references)
+
+## Overview
+
+The workflow is built using [Snakemake](https://snakemake.readthedocs.io/en/stable/) and consists of the following steps:
+
+1. **Input combination** *(optional)* — Merges multiple feature tables via row-bind (same features, different samples) or column-bind (same samples, different features) before downstream processing.
+2. **Feature normality testing** — Tests each feature for normality (Shapiro-Wilk) and records results as an annotation source for downstream summary selection.
+3. **Feature preprocessing and imputation** — Filters features by missingness and unique-value thresholds, optionally imputes missing values, optionally benchmarks imputation methods, and optionally applies distribution-shift filtering.
+4. **Module reduction** — Reduces preprocessed features into hierarchical-clustering modules using a configured discovery subset, with optional repeated subsampling when imputation is applied.
+5. **Module annotation** *(optional)* — Annotates gene-like modules with GO:BP pathway labels via `gprofiler2`, or names modules from top-loading members using an LLM.
+6. **Module set enrichment** *(optional)* — Tests module members for enrichment in configured GMT gene sets.
+7. **Univariate testing — modules** — Fits per-module models (e.g. `lmer`, rank-transform) and stores effect sizes, p-values, and model-assumption results.
+8. **Univariate testing — original features** — Same testing on original/member features, dropping NA samples per feature and requiring a minimum group size.
+9. **Result summarisation** — Converts method-specific result matrices into wide summary CSVs, selecting parametric or non-parametric fields based on model assumptions met.
+10. **Visualisation** — Plots module-level summaries and original feature distributions with group labels and optional module annotations.
+
+The workflow supports three input modes: **single** (one feature table), **batch** (multiple dataset directories discovered automatically), and **combine** (tables merged before processing).
+
+Detailed information about input data and workflow configuration can be found in the [`config/README.md`](config/README.md).
+
+## Input data
+
+| Input | Description |
+| --- | --- |
+| Feature table | CSV with `sample_key` as the first column; all subsequent numeric columns are treated as features |
+| Sample metadata | CSV with `sample_key` column plus grouping, individual ID, batch, and covariate columns |
+| Dataset directories *(batch mode)* | Subdirectories under `input_root`, each containing `bulk_x_features.csv` and `bulk_metadata.csv` |
+| GMT file *(optional)* | Gene set file for module set enrichment |
+
+## Output
+
+All outputs are written to `<results_dir>/` as configured in `config/config.yaml`.
+
+| Directory | Key output files |
+| --- | --- |
+| `preprocess_impute/{dataset_id}/` | `bulk_x_features.csv`, `benchmark.rds`, `preprocess_summary.csv` |
+| `evaluate_preprocessing/{error_metric}/` | `error_distribution.pdf`, `error_threshold*.pdf`, `feature_retention_summary*.csv/pdf` |
+| `modules_hc/{dataset_id}/{subset_name}/` | `bulk_x_features.csv`, `module_eigengenes_hc.rds`, `module_members/` |
+| `meaning_module_genes/{dataset_id}/{subset_name}/` | `bulk_x_features.csv`, `module_annotations.csv`, `modules/` |
+| `meaning_module_llm/{dataset_id}/{subset_name}/` | `bulk_x_features.csv`, `module_annotations.csv`, `modules/` |
+| `univariate_test/{dataset_id}/{method}/` | `result_matrices.rds`, `failed_features.csv` |
+| `summarise_tests/{dataset_id}/` | `summary_df.csv` |
+| `summarise_tests/` | `summary_df.csv` (aggregate across all datasets) |
+| `univariate_test_members/{dataset_id}/{method}/` | `result_matrices.rds`, `failed_features.csv` |
+| `summarise_tests_members/{dataset_id}/` | `summary_df.csv` |
+| `summarise_tests_members/` | `summary_df.csv` (aggregate across all datasets) |
+
+## Usage
+
+The usage of this workflow is described in the [Snakemake Workflow Catalog](https://snakemake.github.io/snakemake-workflow-catalog/docs/workflows/liezeltamon/feature-flow).
+
+If you use this workflow in a paper, please cite the repository URL or its DOI and the tools listed in the [References](#references) section.
+
+## Deployment options
+
+Change to the workflow directory and adjust options in `config/config.yaml`.
+
+```bash
+cd path/to/feature-flow
+```
+
+Perform a dry run to check the workflow before execution:
+
+```bash
+snakemake --dry-run
+```
+
+Run with test files using **conda**:
+
+```bash
+snakemake --cores 2 --sdm conda --directory .test
+```
+
+Run with **apptainer** / **singularity**:
+
+```bash
+snakemake --cores 2 --sdm conda apptainer --directory .test
+```
+
+Run on an HPC cluster via **SLURM** (recommended for production). First activate the environment:
 
 ```bash
 bash envs/feature-module-reduction-env.sh
@@ -32,239 +104,31 @@ mamba activate feature-module-reduction-env
 pip install snakemake-executor-plugin-slurm
 ```
 
-#### Input data contract
-
-- Feature tables must have the configured `sample_key` as the first column.
-- Sample IDs stay as explicit columns, not row names.
-- Numeric columns after `sample_key` are treated as features.
-- Non-numeric feature-table columns after `sample_key` are ignored.
-- Metadata tables provide grouping variables, individual IDs, batch variables, subset keys, and other model covariates.
-- Feature-table sample IDs must be present in metadata; metadata is aligned to feature-table order.
-- Batch mode expects immediate dataset directories containing:
-  - `bulk_x_features.csv`
-  - `bulk_metadata.csv`
-- Combine mode supports:
-  - `row_bind`: same features, different samples
-  - `column_bind`: same samples, different features
-- Contract-style feature IDs are kept intact as the official feature names.
-
-#### Workflow scripts
-
-- `Snakefile`
-  - Defines the full workflow graph and final targets.
-  - Supports `single`, `batch`, and `combine` input modes.
-  - Discovers dataset IDs from input directories in batch mode.
-  - Sends module-level testing to `univariate_test/` and `summarise_tests/`.
-  - Sends original/member-feature testing to `univariate_test_members/` and `summarise_tests_members/`.
-  - Chooses the canonical module table for downstream testing:
-    - gene-like renamed module table when gene module meaning is enabled
-    - LLM-renamed module table when LLM naming is enabled
-    - raw `modules_hc` table otherwise
-
-- `io_helpers.R`
-  - Provides shared feature-table and metadata validation.
-  - Preserves `sample_key` as character data so IDs are not silently converted.
-  - Enforces sample-key presence and uniqueness.
-  - Extracts numeric feature columns and records ignored non-numeric columns.
-  - Aligns metadata rows to feature-table sample order.
-
-- `combine_tables.R`
-  - Combines multiple input datasets before downstream processing.
-  - Uses `row_bind` when tables share feature columns and contain different samples.
-  - Uses `column_bind` when tables share samples and contain different feature columns.
-  - Writes combined feature table, combined metadata table, and an input manifest.
-
-- `test_normality_wrapper.R`
-  - Runs feature-level normality tests on numeric feature columns.
-  - Writes `normality_test_results.csv` and `normality_summary.csv`.
-  - Used as an annotation source for summaries.
-  - Does not decide whether final univariate p-values come from parametric or nonparametric tests.
-
-- `preprocess_impute.R`
-  - Filters features by missingness and optional minimum unique values.
-  - Optionally imputes missing values.
-  - Optionally benchmarks imputation error across configured methods and missingness frequencies.
-  - Optionally filters features by imputation benchmark performance.
-  - Optionally applies distribution-shift filtering.
-  - Writes processed `bulk_x_features.csv`, `benchmark.rds`, and `preprocess_summary.csv`.
-
-- `evaluate_preprocessing.R`
-  - Aggregates preprocessing benchmark outputs across datasets.
-  - Produces imputation-error threshold plots.
-  - Produces feature-retention summaries.
-  - Uses the configured error metric, thresholds, and benchmark directory.
-
-- `modules_hc.R`
-  - Reduces preprocessed features into hierarchical-clustering modules.
-  - Uses configured subset samples for module discovery.
-  - Writes module eigengene tables, module member tables, and eigengene RDS output.
-  - Uses repeated subsampling only when imputation was actually applied.
-  - Can filter features by subset-specific unique values before module reduction.
-
-- `meaning_module_genes.R`
-  - Annotates gene-like modules using g:Profiler GO:BP enrichment.
-  - Gene-like datasets are identified by dataset IDs containing `var_genes`.
-  - Derives enrichment IDs from module member feature IDs using the configured separator.
-  - Prefers significant pathway labels and falls back to suggestive labels when needed.
-  - Writes renamed module tables, `module_annotations.csv`, and per-module audit files.
-
-- `meaning_module_llm.py`
-  - Names modules from top-loading module members using an LLM.
-  - Intended for non-gene or mixed feature modules where pathway enrichment is not appropriate.
-  - Writes renamed module table and `module_annotations.csv`.
-  - Writes per-module prompt, raw response, parsed response, and meaning text for auditability.
-
-- `module_set_enrichment.R`
-  - Tests whether module members are enriched for configured GMT gene sets.
-  - Supports module-member feature IDs with contract-style separators.
-  - Can use only important-loading members or all members.
-  - Writes `mhg_enrichment.csv` per dataset and subset.
-
-- `univariate_test.R`
-  - Fits per-feature models for each configured method, usually `lmer` and `rank_transform`.
-  - Writes `result_matrices.rds` and `failed_features.csv`.
-  - Stores effect-size, p-value, global p-value, assumption-test, and sample-count vectors.
-  - Module mode uses `--missing_response_policy fail`.
-  - Member mode uses `--missing_response_policy drop_feature_sample`.
-  - Member mode drops NA samples separately per feature and requires at least 3 samples per requested group.
-  - Feature values are scaled before testing, preserving existing pipeline behavior.
-  - Uses an internal response column for modeling; output feature names remain unchanged.
-
-- `summarise_tests.R`
-  - Converts method-specific `result_matrices.rds` files into wide summary CSVs.
-  - Writes one per-source `summary_df.csv` and one aggregate `summary_df.csv`.
-  - Adjusts contrast p-values within each feature column.
-  - Chooses final parametric vs nonparametric fields using `model_assumptions_met`.
-  - `model_assumptions_met == TRUE` means final fields use the parametric method.
-  - `model_assumptions_met == FALSE` means final fields use the nonparametric method.
-  - `model_assumptions_met == NA` leaves final fields as `NA`.
-  - Joins `is_normal` from normality outputs when available.
-
-- `plot_features.R`
-  - Plots module-level summaries and original feature distributions.
-  - Uses metadata for group labels and sample covariates.
-  - Uses module annotations when available.
-  - Writes plot outputs under `plot_features/<dataset_id>/<subset_name>/`.
-
-- `slurm_submit_template.sh`
-  - Provides editable examples for launching Snakemake on SLURM.
-  - Uses the configured run ID and config file.
-  - Includes `--rerun-incomplete` and `--keep-going` for resumable cluster runs.
-  - Sources OpenAI credentials for runs that use LLM module naming.
-
-#### Output layout
-
-- Preprocessing:
-
-```text
-<results_dir>/preprocess_impute/<dataset_id>/
-  bulk_x_features.csv
-  benchmark.rds
-  preprocess_summary.csv
-```
-
-- Aggregate preprocessing evaluation:
-
-```text
-<results_dir>/evaluate_preprocessing/<error_metric>/
-  error_distribution.pdf
-  error_threshold*.pdf
-  feature_retention_summary*.csv/pdf
-```
-
-- Module reduction:
-
-```text
-<results_dir>/modules_hc/<dataset_id>/<subset_name>/
-  bulk_x_features.csv
-  module_eigengenes_hc.rds
-  module_members/
-```
-
-- Module meaning:
-
-```text
-<results_dir>/meaning_module_genes/<dataset_id>/<subset_name>/
-  bulk_x_features.csv
-  module_annotations.csv
-  modules/
-
-<results_dir>/meaning_module_llm/<dataset_id>/<subset_name>/
-  bulk_x_features.csv
-  module_annotations.csv
-  modules/
-```
-
-- Module-level univariate testing:
-
-```text
-<results_dir>/univariate_test/<dataset_id>/<method>/
-  result_matrices.rds
-  failed_features.csv
-
-<results_dir>/summarise_tests/<dataset_id>/
-  summary_df.csv
-
-<results_dir>/summarise_tests/
-  summary_df.csv
-```
-
-- Member/original-feature univariate testing:
-
-```text
-<results_dir>/univariate_test_members/<dataset_id>/<method>/
-  result_matrices.rds
-  failed_features.csv
-
-<results_dir>/summarise_tests_members/<dataset_id>/
-  summary_df.csv
-
-<results_dir>/summarise_tests_members/
-  summary_df.csv
-```
-
-- Logs:
-
-```text
-<logs_dir>/<rule_name>/
-<logs_dir>/<rule_name>.<details>.log
-```
-
-#### Running
-
-- Run from the repo root.
-- Use the default example config:
+Then submit using the provided template script:
 
 ```bash
-snakemake -s code/feature_module_reduction/Snakefile --cores 1
+bash slurm_submit_template.sh
 ```
 
-- Run the contract-style batch smoke test:
+For runs that use LLM module naming, source OpenAI credentials before submitting:
 
 ```bash
 source ~/.config/openai/env.sh
-snakemake -s code/feature_module_reduction/Snakefile \
-  --configfile code/feature_module_reduction/config/examples/config_batch.yaml \
-  --cores 1 -F
 ```
 
-- Run the real `input_feature_table_level00` config:
+## Workflow profiles
 
-```bash
-snakemake -s code/feature_module_reduction/Snakefile \
-  --configfile code/feature_module_reduction/config/input_feature_table_level00.yaml \
-  --cores 1
-```
+The `profiles/` directory can contain any number of [workflow-specific profiles](https://snakemake.readthedocs.io/en/stable/executing/cli.html#profiles) that users can choose from.
+The [profiles `README.md`](profiles/README.md) provides more details.
 
-- Run on SLURM using the template:
+## Authors
 
-```bash
-bash code/feature_module_reduction/slurm_submit_template.sh
-```
+- Liezel Tamon
+  - University of Oxford
+  - [ORCID profile](https://orcid.org/0000-0003-3705-6019)
 
-- Main config templates:
-  - `config/config.template.yaml`
-  - `config/config_batch.template.yaml`
-  - `config/config_combine_base.template.yaml`
-  - `config/config_combine_row_bind.template.yaml`
-  - `config/config_genes.template.yaml`
+## References
+
+> Köster, J., Mölder, F., Jablonski, K. P., Letcher, B., Hall, M. B., Tomkins-Tinch, C. H., Sochat, V., Forster, J., Lee, S., Twardziok, S. O., Kanitz, A., Wilm, A., Holtgrewe, M., Rahmann, S., & Nahnsen, S. _Sustainable data analysis with Snakemake_. F1000Research, 10:33, **2021**. https://doi.org/10.12688/f1000research.29032.2
+
+> Bashford-Rogers Lab. _vdjremix_. https://github.com/Bashford-Rogers-lab/vdjremix
