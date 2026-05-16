@@ -1,0 +1,30 @@
+include: "rules/common.smk"
+
+ALL_TARGETS = [
+    *expand(
+        f"{RESULTS_DIR}/test_normality/{{dataset_id}}/normality_summary.csv",
+        dataset_id=DATASET_IDS,
+    ),
+    *expand(
+        f"{RESULTS_DIR}/univariate_test_members/{{dataset_id}}/{{method}}/result_matrices.rds",
+        dataset_id=DATASET_IDS,
+        method=config["univariate"]["methods"],
+    ),
+    f"{RESULTS_DIR}/summarise_tests_members/summary_df.csv",
+    *expand(
+        f"{RESULTS_DIR}/plot_features_members/{{dataset_id}}/m1/features.pdf",
+        dataset_id=DATASET_IDS,
+    ),
+]
+
+
+rule all:
+    input:
+        ALL_TARGETS
+
+
+include: "rules/input.smk"
+include: "rules/normality.smk"
+include: "rules/univariate_members.smk"
+include: "rules/summarise_members.smk"
+include: "rules/plotting_members.smk"

@@ -1,0 +1,22 @@
+configfile: "code/feature_module_reduction/config/examples/config.yaml"
+
+shell.executable("/bin/bash")
+
+RESULTS_DIR = config["results_dir"]
+LOGS_DIR = config["logs_dir"]
+RSCRIPT_BIN = config["rscript_bin"]
+
+PARAMETRIC_METHOD = config.get("summarise_tests", {}).get("parametric_method", "lmer")
+NONPARAMETRIC_METHOD = config.get("summarise_tests", {}).get(
+    "nonparametric_method",
+    "rank_transform",
+)
+
+
+rule all:
+    input:
+        f"{RESULTS_DIR}/summarise_tests_available/summary_df.csv",
+        f"{RESULTS_DIR}/summarise_tests_members_available/summary_df.csv",
+
+
+include: "rules/summarise_available.smk"

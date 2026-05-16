@@ -1,37 +1,83 @@
-# Main entrypoint of the workflow.
-# Please follow the best practices:
-# https://snakemake.readthedocs.io/en/stable/snakefiles/best_practices.html,
-# in particular regarding the standardized folder structure mentioned there.
-
-
-# load configuration
-# -----------------------------------------------------
-configfile: "config/config.yaml"
-
-
-# load rules
-# -----------------------------------------------------
 include: "rules/common.smk"
-include: "rules/process_reads.smk"
+
+ALL_TARGET_GROUPS = [
+    [f"{RESULTS_DIR}/resolved_dataset_config.csv"],
+    expand(f"{RESULTS_DIR}/test_normality/{{dataset_id}}/normality_summary.csv", dataset_id=DATASET_IDS),
+    expand(f"{RESULTS_DIR}/preprocess_impute/{{dataset_id}}/bulk_x_features.csv", dataset_id=DATASET_IDS),
+    expand(f"{RESULTS_DIR}/preprocess_impute/{{dataset_id}}/benchmark.rds", dataset_id=DATASET_IDS),
+    [
+        f"{EVALUATE_PREPROCESSING_ROOT}/error_distribution.pdf",
+        f"{EVALUATE_PREPROCESSING_ROOT}/error_threshold.pdf",
+        f"{EVALUATE_PREPROCESSING_ROOT}/error_threshold_detailed.pdf",
+        f"{EVALUATE_PREPROCESSING_ROOT}/error_threshold_log10n.pdf",
+        f"{EVALUATE_PREPROCESSING_ROOT}/error_threshold_log10n_detailed.pdf",
+        f"{EVALUATE_PREPROCESSING_ROOT}/feature_retention_summary.csv",
+        f"{EVALUATE_PREPROCESSING_ROOT}/feature_retention_summary.pdf",
+        f"{EVALUATE_PREPROCESSING_ROOT}/feature_retention_summary_detailed.pdf",
+        f"{EVALUATE_PREPROCESSING_ROOT}/feature_retention_summary_log10n.pdf",
+        f"{EVALUATE_PREPROCESSING_ROOT}/feature_retention_summary_log10n_detailed.pdf",
+    ],
+    expand(
+        f"{RESULTS_DIR}/test_normality_modules/{{dataset_id}}/{SUBSET_NAME}/normality_summary.csv",
+        dataset_id=DATASET_IDS
+    ),
+    expand(f"{RESULTS_DIR}/modules_hc/{{dataset_id}}/{SUBSET_NAME}/bulk_x_features.csv", dataset_id=DATASET_IDS),
+    expand(f"{RESULTS_DIR}/modules_hc/{{dataset_id}}/{SUBSET_NAME}/module_eigengenes_hc.rds", dataset_id=DATASET_IDS),
+    [f"{RESULTS_DIR}/summarise_tests/summary_df.csv"],
+    [f"{RESULTS_DIR}/summarise_tests_members/summary_df.csv"],
+    expand(f"{RESULTS_DIR}/plot_features/{{dataset_id}}/{SUBSET_NAME}/variance_explained.svg", dataset_id=DATASET_IDS),
+]
+ALL_TARGET_GROUPS.append(
+    expand(
+        f"{RESULTS_DIR}/univariate_test/{{dataset_id}}/{{method}}/result_matrices.rds",
+        dataset_id=DATASET_IDS,
+        method=config["univariate"]["methods"]
+    )
+)
+ALL_TARGET_GROUPS.append(
+    expand(
+        f"{RESULTS_DIR}/univariate_test_members/{{dataset_id}}/{{method}}/result_matrices.rds",
+        dataset_id=DATASET_IDS,
+        method=config["univariate"]["methods"]
+    )
+)
+
+if MODULE_MEANING_GENES_ENABLED:
+    ALL_TARGET_GROUPS.extend([
+        expand(f"{RESULTS_DIR}/meaning_module_genes/{{dataset_id}}/{SUBSET_NAME}/bulk_x_features.csv", dataset_id=GENE_LIKE_DATASET_IDS),
+        expand(f"{RESULTS_DIR}/meaning_module_genes/{{dataset_id}}/{SUBSET_NAME}/module_annotations.csv", dataset_id=GENE_LIKE_DATASET_IDS),
+    ])
+
+if MODULE_MEANING_LLM_ENABLED:
+    ALL_TARGET_GROUPS.extend([
+        expand(f"{RESULTS_DIR}/meaning_module_llm/{{dataset_id}}/{SUBSET_NAME}/bulk_x_features.csv", dataset_id=DATASET_IDS),
+        expand(f"{RESULTS_DIR}/meaning_module_llm/{{dataset_id}}/{SUBSET_NAME}/module_annotations.csv", dataset_id=DATASET_IDS),
+    ])
+
+if MODULE_SET_ENRICHMENT_ENABLED:
+    ALL_TARGET_GROUPS.append(
+        expand(
+            f"{RESULTS_DIR}/module_set_enrichment/{{dataset_id}}/{SUBSET_NAME}/mhg_enrichment.csv",
+            dataset_id=DATASET_IDS
+        )
+    )
+
+ALL_TARGETS = [path for group in ALL_TARGET_GROUPS for path in group]
 
 
-# optional messages, log and error handling
-# -----------------------------------------------------
-onstart:
-    print("\n--- Analysis started ---\n")
-
-
-onsuccess:
-    print("\n--- Workflow finished! ---\n")
-
-
-onerror:
-    print("\n--- An error occurred! ---\n")
-
-
-# target rules
-# -----------------------------------------------------
 rule all:
-    default_target: True
     input:
-        "results/multiqc/multiqc_report.html",
+        ALL_TARGETS
+
+
+include: "rules/metadata.smk"
+include: "rules/input.smk"
+include: "rules/normality.smk"
+include: "rules/preprocess.smk"
+include: "rules/normality_modules.smk"
+include: "rules/modules.smk"
+include: "rules/univariate.smk"
+include: "rules/univariate_members.smk"
+include: "rules/summarise.smk"
+include: "rules/summarise_members.smk"
+include: "rules/plotting.smk"

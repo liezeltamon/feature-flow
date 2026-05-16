@@ -1,0 +1,37 @@
+include: "rules/common.smk"
+
+
+AVAILABLE_MODULE_DATASET_IDS = [
+    dataset_id
+    for dataset_id in DATASET_IDS
+    if os.path.exists(canonical_module_table_path(dataset_id))
+    and os.path.exists(metadata_input_path(dataset_id))
+]
+
+AVAILABLE_MEMBER_DATASET_IDS = [
+    dataset_id
+    for dataset_id in DATASET_IDS
+    if os.path.exists(feature_input_path(dataset_id))
+    and os.path.exists(metadata_input_path(dataset_id))
+]
+
+UNIVARIATE_AVAILABLE_TARGETS = expand(
+    f"{RESULTS_DIR}/univariate_test/{{dataset_id}}/{{method}}/result_matrices.rds",
+    dataset_id=AVAILABLE_MODULE_DATASET_IDS,
+    method=config["univariate"]["methods"],
+)
+
+UNIVARIATE_MEMBERS_AVAILABLE_TARGETS = expand(
+    f"{RESULTS_DIR}/univariate_test_members/{{dataset_id}}/{{method}}/result_matrices.rds",
+    dataset_id=AVAILABLE_MEMBER_DATASET_IDS,
+    method=config["univariate"]["methods"],
+)
+
+
+rule all:
+    input:
+        UNIVARIATE_AVAILABLE_TARGETS + UNIVARIATE_MEMBERS_AVAILABLE_TARGETS
+
+
+include: "rules/univariate.smk"
+include: "rules/univariate_members.smk"
